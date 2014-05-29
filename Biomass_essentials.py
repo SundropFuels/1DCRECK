@@ -502,43 +502,55 @@ class LSODASolidGas(LSODASimulator):
         Class Instance which subclasses LSODASimulator for simulating solid-gas kinetics.  The subclass instantiates
         a solid and gas phase and uses its own energy balance for solid gas reactions and heat transfer  
     """
-    def __init__(self,tube,**kwargs):
+    def __init__(self,tube,gas_filename = None, solids_filename = None, energyBalance = "Isothermal", **kwargs):
         """
-            kwargs: gas_filename,solids_filename,energyBalance
+            The main Solver for the solid/gas biomass gasification model
         """
         LSODASimulator.__init__(self,tube = tube)
         self.solids = Phase(name = 'Solids')
         self.gas = Phase(name = 'Gas')
         
-        self.solidSpecies = kwargs.get('SolidSpecies',['ASH','CELL','HCE','LIGH','LIGO','LIGC'])   #Selected Through GUI
+        self.solidSpecies = ['ASH','CELL','HCE','LIGH','LIGO','LIGC']   
         
-        self.phi = 0.5                                  #Changed at Coupler level
-        self.particleDiameter = 100E-6        #[meters] #Changed at Coupler level
-        self.gasThermalConductivity  = 0.050  #[W/m-K]  #Changed at Coupler level
-        self.solidDensity = 1400.0            #[kg/m^3] #Changed at Coupler level
+        self.phi = 0.5                                  
+        self.particleDiameter = 100E-6        #[meters] 
+        self.gasThermalConductivity  = 0.050  #[W/m-K]  
+        self.solidDensity = 1400.0            #[kg/m^3] 
         
-        self.gas_filename = kwargs.get('gas_filename')
-        self.solids_filename = kwargs.get('solids_filename')
-        self.energyBalance = kwargs.get('energyBalance',"ConstantWallTemp")
+        self.gas_filename = gas_filename
+        self.solids_filename = solids_filename
+        self.energyBalance = energyBalance
         
     def setInletConditions(self, m_solids, T_solids, pressure, m_gas, **kwargs):
         """
             Sets up the solver ICs for the gas+solids biomass solver
         """
-        self.gas.cantera_phase = importPhase(self.gas_filename)
-        self.gas.fileName = self.gas_filename
         if 'Tmix' not in kwargs:
             Tmix = newton(self.calcMixingEnergy,x0 = np.mean(kwargs.get('T_gas').values()),args=(self.gas.cantera_phase,kwargs.get('m_gas'),kwargs.get('T_gas')))
         else:
             Tmix = kwargs.get('Tmix')
-        phaseDict = {self.solids:{'m_0':kwargs.get('m_solids'),'TempIn':kwargs.get('T_solids'),'pressure':kwargs.get('pressure'),
-                                  'phaseMechanism':self.solids_filename},
-                     self.gas:{'m_0':kwargs.get('m_gas'),'TempIn':Tmix,'pressure':kwargs.get('pressure'),'phaseMechanism':self.gas_filename}}
-        print "phaseDict set up ... setting inlet conditions"
-        LSODASimulator.setInletConditions(self,phaseDict)
+
+        #Need to set up the phases
+        gas_parameters = {}
+        gas_parameters['m_0'] = m_gas  #m_gas should be a dictionary of UnitVals
+        gas_parameters['phaseMechanism'] = self.gas_filename
+        gas_parameters['TempIn'] = Tmix
+        gas_parameters['pressure'] = pressure
+
+        solids_parameters = {}
+        solids_parameters['m_0'] = m_solids
+        solids_parameters['phaseMechanism'] = self.solids_filename
+        solids_parameters['TempIn'] = T_solids
+        solids_parameters['pressure'] = pressure
+
+        self.gas.setup(gas_parameters)
+        self.solids.setup(solids_parameters)
+                     
         
-        #-----------------------------------------------------------------------------------
-        #-----------------------------------------------------------------------------------     
+        print "phaseDict set up ... setting inlet conditions"
+        LSODASimulator.setInletConditions(self,[self.solids, self.gas])
+        
+        
         #PICK OUT SOLID AND GAS INDICES SPECIFIC TO ACTUAL GIVEN SPECIES.  (CELL,HCE,ect....)
         #solidSpeciesIndices AND gasSpeciesIndices ARE DICTIONARIES WITH THE SPECIES NAME MAPPED TO THE 
         #SPECIES INDEX.  UNLIKE THE SECTION ABOVE, THESE DICTIONARIES ONLY CONTAIN EITHER SOLID OR GAS 
