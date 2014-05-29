@@ -18,7 +18,8 @@ from Cantera.constants import GasConstant as R
 import sys
 import csv
 import time
-
+import unitConversion as uc
+import UnitValues as uv
 
 
 class Tube:
@@ -79,7 +80,7 @@ class Phase:
     phaseCounter = 0
     phaseList = []
     phaseDictionary = {}
-    def __init__(self,**kwargs):
+    def __init__(self,name=None):
         """
             kwargs: name
         """
@@ -103,6 +104,50 @@ class Phase:
                                             #The solver determines which phase temperature its referencing based on this index.
         #self.temperatureProfiles = None    #No longer using this
         
+    def setup(self, parameters):
+        """Sets up the phase given the parameter dictionary"""
+
+        
+        if self.filename != parameters['phaseMechanism']:       #Determine if the reaction mechanism changed
+            self.cantera_phase = importPhase(parameters['phaseMechanism']) #Create the cantera phase if its a new mechanism
+            self.filename = parameters['phaseMechanism']
+        self.m_0 = parameters['m_0']                            #Dictionary of mass flow rates for each phase species
+            
+
+        #create the string of compositions that Cantera needs to set itself up
+        self.phase_string = ""
+        for k,v in self.m_0.items():			#v will all be unitVal
+            self.phase_string += "%s:%s," % (k,v.get_value('kg/s'))
+            self.phase_string = self.phase_string[0:-1]            #Remove last comma from string
+            
+        #Setup the Cantera phase -- all parameters need to be unit values
+        self.TempIn = parameters['TempIn'].get_value('K')
+        self.pressure = (parameters['pressure'].get_value('Pa'))
+        self.cantera_phase.set(T = self.TempIn, P = self.pressure, Y = self.phase_string)
+                  
+        #CALCULATE TOTAL INLET FLOW RATES FOR THE PHASE
+        self.total_flow = 0.0
+        for k in self.m_0:
+            self.total_flow += self.m_0[k].get_value('kg/s')
+            self.total_molar_flow = self.total_flow/self.cantera_phase.meanMolarMass() #[kmol/s]convert to kmol/s
+ 
+        #CALCULATE AND GRAB DATA NEEDED FOR SETTING INLET CONDITION
+        self.moleFractions = self.cantera_phase.moleFractions()          
+                
+            
+        #MAP SPECIES INDICES INTO A DICTIONARY     
+        self.species_indices = {}
+        self.species_names = self.cantera_phase.speciesNames()
+        for name in self.species_names:
+            self.species_indices[name] = self.species_names.index(name)
+        
+        #SET THE PHASE'S TEMPERATURE INDEX.  (This may no longer be necessary -- I need to look where it is used)
+        self.temperatureIndex = phaseSetCount
+        phaseSetCount +=1
+
+
+        
+
     def printInfo(self):
         """
             Print phase information.
@@ -139,62 +184,35 @@ class LSODASimulator:
         self.maxConversion = 100.0               #PROBABLY NEED TO ADD THIS TO THE GUI
         self.gasConversion = []                 #THIS DEPENDS ON SPECIES OF INTEREST.  I WILL NEED TO FIND A WAY TO IMPLEMENT THIS BETTER.
 
-    def setInletConditions(self, phaseDict):
+    def setInletConditions(self, phaseList):
         """
-           Sets up system initial conditions.  phaseDict is a dictionary passed by a subclass containing
-           a Phase instance and parameters to set the phase.  The method loops through every phase in the
-           dictionary and sets their parameters.  It also generates several data members for use throughout
-           the simulation.
+           Sets up the solver IC's.  phaseList is a list of phase objects that have been pre-configured.
         """
+        
+
         #Setup lists to grab relevant phase data.  The solver inlet condition is set up using these lists
         phaseMoleFractions = []
         phaseTemperatures = []
         phaseTotalMolarFlow = []
         phaseSetCount = 0
-        for phase,parameters in phaseDict.items():                   #Loop through each phase in phaseDict
-            if phase.filename != parameters['phaseMechanism']:       #Determine if the reaction mechanism changed
-                phase.cantera_phase = importPhase(parameters['phaseMechanism']) #Create the cantera phase if its a new mechanism
-                phase.filename = parameters['phaseMechanism']
-            phase.m_0 = parameters['m_0']                            #Dictionary of mass flow rates for each phase species
-            #-----------------------------------------------------------------------------------
-            #-----------------------------------------------------------------------------------
-            #BUILD STRING OF SPECIES FROM DICTIONARY IN THE FORM 'SPECIES:AMOUNT'
-            phase.phase_string = ""
-            for k,v in phase.m_0.items():
-                phase.phase_string += "%s:%s," % (k,v)
-            phase.phase_string = phase.phase_string[0:-1]            #Remove last comma from string
-            #-----------------------------------------------------------------------------------
-            #-----------------------------------------------------------------------------------
-            #SET GAS INLET CONDITIONS (TEMPERATURES, PRESSURE, COMPOSITION)
-            phase.TempIn = parameters['TempIn'] + 273.15                 #self.TempIn is in K
-            phase.pressure = (parameters['pressure']+14.7)*101325.0/14.7 #self.pressure is in Pa
-            phase.cantera_phase.set(T = phase.TempIn, P = phase.pressure, Y = phase.phase_string)
-            #-----------------------------------------------------------------------------------
-            #-----------------------------------------------------------------------------------  
-            #CALCULATE TOTAL INLET FLOW RATES FOR THE PHASE
-            phase.total_flow = 0.0
-            for value in phase.m_0.values():
-                phase.total_flow += value/2.204/3600.0                         #[kg/s] Converts lb/hr of each species to kg/s and sums
-            phase.total_molar_flow = phase.total_flow/phase.cantera_phase.meanMolarMass() #[kmol/s]convert to kmol/s
-            #CALCULATE AND GRAB DATA NEEDED FOR SETTING INLET CONDITION
-            phase.moleFractions = phase.cantera_phase.moleFractions()          
+       
+        
+        i=0
+        for phase in phaseList:
+         
             phaseMoleFractions.append(phase.moleFractions)
-            phaseTemperatures.append(phase.TempIn)                             
+            phaseTemperatures.append(phase.TempIn)
             phaseTotalMolarFlow.append(phase.total_molar_flow)
-            #MAP SPECIES INDICES INTO A DICTIONARY     
-            phase.species_indices = {}
-            phase.species_names = phase.cantera_phase.speciesNames()
-            for name in phase.species_names:
-                phase.species_indices[name] = phase.species_names.index(name)
-            #SET THE PHASE'S TEMPERATURE INDEX.  THIS IS NEEDED SINCE I CAN'T ENFORCE AN ORDER IN WHICH PHASES ARE SET
-            phase.temperatureIndex = phaseSetCount
-            phaseSetCount +=1
- 
+
+            phase.temperatureIndex = i
+            i += 1
+
         #DATE MEMBERS USED THROUGHOUT THE PROGRAM
         self.species_indices = phase.species_indices  #This should give all species and their index since every phase should have the same species
         self.cantera_species = phase.cantera_phase    #This should give a cantera phase object corresponding to the last phase entered.  It should be used for referencing species data.
+
         #create initial value matrix for flow
-        self.n_0 = np.sum([phaseMoleFractions[phase]*phaseTotalMolarFlow[phase] for phase in range(Phase.phaseCounter)],axis = 0)
+        self.n_0 = np.sum([phaseMoleFractions[phase]*phaseTotalMolarFlow[phase] for phase in range(len(phaseList))],axis = 0)
         #create complete matrix with phase temperatures appended to the end
         self.y0 = np.append(self.n_0,phaseTemperatures)
         self.tempIndex = len(self.y0)-len(self.n_0)   #Index in y0 where temperature data begins
@@ -503,9 +521,9 @@ class LSODASolidGas(LSODASimulator):
         self.solids_filename = kwargs.get('solids_filename')
         self.energyBalance = kwargs.get('energyBalance',"ConstantWallTemp")
         
-    def setInletConditions(self, **kwargs):
+    def setInletConditions(self, m_solids, T_solids, pressure, m_gas, **kwargs):
         """
-            kwargs: m_solids,T_solids,pressure,m_gas
+            Sets up the solver ICs for the gas+solids biomass solver
         """
         self.gas.cantera_phase = importPhase(self.gas_filename)
         self.gas.fileName = self.gas_filename
