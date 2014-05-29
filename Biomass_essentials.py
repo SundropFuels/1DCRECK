@@ -217,7 +217,7 @@ class LSODASimulator:
         self.y0 = np.append(self.n_0,phaseTemperatures)
         self.tempIndex = len(self.y0)-len(self.n_0)   #Index in y0 where temperature data begins
     
-    #THIS METHOD NEEDS TO 
+    
     def calc_carbon_conversion(self,productSpecies):
         """
             Calculate the carbon conversion based on carbon turned to a product species.
@@ -314,7 +314,7 @@ class LSODASimulator:
         self.wallTemp = [] #List for storing wall temperature values for the mass and energy balance
         self.length = []   #This list stores all of the length values used in the mass and energy balance, not the stripped list
         
-        print "Simulation Count %s"% self.simulationCount
+        
         print "Solving the differential equation..."
         y = odeint(self.massAndEnergyBalance, self.y0, self.z, args, rtol = self.rtol, atol = self.atol,mxstep = 2000)
         print "ME Balance solution complete"
@@ -563,22 +563,17 @@ class LSODASolidGas(LSODASimulator):
             if species not in self.solidSpeciesIndices.keys():
                 self.gasSpeciesIndices[species] = self.gas.species_names.index(species)
     
-    """
-    def solveLSODA(self,qInterpolator,zleft,zright):
-        LSODASimulator.solveLSODA(self,qInterpolator,zleft,zright)
-        #RETURN THE SOLID TEMPERATURE ARRAY FOR THE MONTE CARLO SIMULATION
-        return self.phaseTemps[:,self.solids.temperatureIndex]    #return solid temperture for monte carlo calcultions
-    """         
+       
     def massAndEnergyBalance(self,y,z):
         #sys.stdout.write("Simulation progress: %d%%   \r" % ((z/self.tube.length)*100))
         sys.stdout.write("Current slice: %f%% \r" % z)
         #print "In GasSolid Energy Balance"
-        #-----------------------------------------------------------------------------------
-        #-----------------------------------------------------------------------------------
+        
         #CUT THE INPUT ARRAY INTO RELEVANT VALUES  (SAME ROUTINE AS IN solveLSODA)
         n_solids = np.zeros(len(self.solids.species_indices.values()))
         n_gas = np.zeros(len(self.gas.species_indices.values()))      #array of zeros equal to the length of species array
         #GET APPROPRIATE SOLID AND GAS SPECIES FROM INPUT ARRAY
+        #This is likely VERY slow -- the array is NOT a hash, so it requires searching
         n_solids[np.ix_(self.solidSpeciesIndices.values())] = y[np.ix_(self.solidSpeciesIndices.values())]
         n_gas[np.ix_(self.gasSpeciesIndices.values())] = y[np.ix_(self.gasSpeciesIndices.values())]
         n = y[0:-self.tempIndex]
@@ -586,8 +581,7 @@ class LSODASolidGas(LSODASimulator):
         T_s = phaseTemps[self.solids.temperatureIndex]                #Solids Temperature
         T_g = phaseTemps[self.gas.temperatureIndex]                   #Gas Temperature 
 
-        #-----------------------------------------------------------------------------------
-        #-----------------------------------------------------------------------------------
+        
         #SETUP NECESSARY DATA FOR THE ENERGY BALANCE TO SOLVE
         #Need solids and gas fractions to set correct pressures.  Overall pressure should stay constant.
         solids_fraction = sum(n_solids)/sum(n)
@@ -602,12 +596,11 @@ class LSODASolidGas(LSODASimulator):
         #m_gas = self.gas.total_gas_flow                #[kg/s]
         rho_solid = self.solidDensity              #[kg/m^3]
         particleDiameter = self.particleDiameter   #[meters]
-        k_g = self.gasThermalConductivity          #[W/m-K]Thermal Conductivity of gas
+        k_g = self.gasThermalConductivity          #[W/m-K]Thermal Conductivity of gas - COULD get this from the Cantera model, if it matters
         phi = self.phi                             #Effectiveness Factor
         T_wall = self.tube.temperature             #Tube Wall Temperature
         #heatflux = self.tube.heatflux/((D/4.0))
-        #-----------------------------------------------------------------------------------
-        #-----------------------------------------------------------------------------------
+        
         #SET SOLID AND GAS OBJECT TO THE SYSTEM CONDITIONS IN ORDER TO GRAB REACTION AND THERMO PROPERTIES
         self.solids.cantera_phase.set(T=T_s, P=pressure*solids_fraction, X=n_solids)
         self.gas.cantera_phase.set(T=T_g, P=pressure*gas_fraction, X=n_gas)
@@ -615,8 +608,7 @@ class LSODASolidGas(LSODASimulator):
         self.solids.total_molar_flow_out = n_solids
         self.gas.total_molar_flow_out = n_gas
         
-        #-----------------------------------------------------------------------------------
-        #-----------------------------------------------------------------------------------
+        
         #CALCULATE REACTION RATES, ENTHALPIES, AND HEAT CAPACITIES OF SOLID AND GAS PHASES
         r1 = self.solids.cantera_phase.netProductionRates()    #[kmol/m^3-s] reaction rate for each species in the solids
         r2 = self.gas.cantera_phase.netProductionRates()       #[kmol/m^3-s] reaction rate for each species in the gas
@@ -626,8 +618,7 @@ class LSODASolidGas(LSODASimulator):
         H2 = self.gas.cantera_phase.enthalpies_RT()*R*T_g        #[J/kmol] enthalpy of each solid component
         Cp1 = self.solids.cantera_phase.cp_R()*R                 #[J/kmol-K] molar heat capacities of each species
         Cp2 = self.gas.cantera_phase.cp_R()*R                    #[J/kmol-K] molar heat capacities of each species
-        #-----------------------------------------------------------------------------------
-        #-----------------------------------------------------------------------------------
+        
         #CALCULATE ENERGY BALANCE SOURCE AND COUPLING TERMS
         #SOLVE THE ENERGY BALANCE CORRESPONDING TO THE USER SET PHASE
         sourceTerm = D/A*np.pi*sigma*epsilon*phi*(T_wall**4 - T_s**4)  #Radiation Source Term
@@ -668,7 +659,22 @@ if __name__ == '__main__':
     tube1 = Tube(diameter = 1.5/39.37, length = 24.0/39.37, emissivity = 0.9, temperature = 1723)
     sim1 = LSODASolidGas(tube = tube1, gas_filename = "completeMechanism_gas.xml", solids_filename = "completeMechanism_solid.xml")
     print "simulation created"
-    sim1.setInletConditions(m_solids =  {'ASH':2.0*0.005,'CELL':0.3939*2.0,'HCE':0.3*2.0,'LIGH':0.3/3.0*2.0,'LIGO':0.3/3.0*2.0,'LIGC':0.3/3.0*2.0}, m_gas = {'H2O':2.0*0.85,'CO2':2.0*1.5}, T_solids = 25, T_gas = 300, Tmix = 450.0, pressure = 50)
+
+    TotalFlowRate = uv.UnitVal(2.0, 'lb/hr')
+    m_solids = {}
+    m_solids['ASH'] = TotalFlowRate * 0.005
+    m_solids['CELL'] = TotalFlowRate * 0.3939
+    m_solids['HCE'] = TotalFlowRate * 0.3
+    m_solids['LIGH'] = TotalFlowRate * 0.3/3.0
+    m_solids['LIGO'] = TotalFlowRate * 0.3/3.0
+    m_solids['LIGC'] = TotalFlowRate * 0.3/3.0
+
+    m_gas = {}
+    m_gas['H2O'] = 2.0 * 0.85
+    m_gas['CO2'] = 2.0 * 1.5
+    
+    
+    sim1.setInletConditions(m_solids = m_solids, m_gas = m_gas, T_solids = uv.UnitVal(25, 'C'), T_gas = uv.UnitVal(300, 'C'), Tmix = uv.UnitVal(450.0,'K'), pressure = uv.UnitVal(50, 'psig'))
     #sim1.setTolerance(rtol = 1E-12, atol = 1E-12)
     print "solver starting"
     sim1.solveLSODA()
