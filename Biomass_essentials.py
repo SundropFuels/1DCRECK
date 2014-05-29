@@ -85,7 +85,9 @@ class Phase:
             kwargs: name
         """
         Phase.phaseCounter +=1
-        self.name = kwargs.get('name','Phase %s '%(Phase.phaseCounter))  #Either set name to the input, or set to 'Phase' with a counter
+        if name is None:
+            name = 'Phase %s' % Phase.phaseCounter
+        self.name = name
         Phase.phaseDictionary[self.name]=(self)
         Phase.phaseList.append(self)
         self.filename = None                #Filename for reaction mechanism of phase
@@ -116,6 +118,7 @@ class Phase:
 
         #create the string of compositions that Cantera needs to set itself up
         self.phase_string = ""
+        
         for k,v in self.m_0.items():			#v will all be unitVal
             self.phase_string += "%s:%s," % (k,v.get_value('kg/s'))
             self.phase_string = self.phase_string[0:-1]            #Remove last comma from string
@@ -141,9 +144,7 @@ class Phase:
         for name in self.species_names:
             self.species_indices[name] = self.species_names.index(name)
         
-        #SET THE PHASE'S TEMPERATURE INDEX.  (This may no longer be necessary -- I need to look where it is used)
-        self.temperatureIndex = phaseSetCount
-        phaseSetCount +=1
+        
 
 
         
@@ -520,6 +521,7 @@ class LSODASolidGas(LSODASimulator):
         self.gas_filename = gas_filename
         self.solids_filename = solids_filename
         self.energyBalance = energyBalance
+
         
     def setInletConditions(self, m_solids, T_solids, pressure, m_gas, **kwargs):
         """
@@ -529,6 +531,8 @@ class LSODASolidGas(LSODASimulator):
             Tmix = newton(self.calcMixingEnergy,x0 = np.mean(kwargs.get('T_gas').values()),args=(self.gas.cantera_phase,kwargs.get('m_gas'),kwargs.get('T_gas')))
         else:
             Tmix = kwargs.get('Tmix')
+
+        print "Setting up the phases"
 
         #Need to set up the phases
         gas_parameters = {}
@@ -544,12 +548,15 @@ class LSODASolidGas(LSODASimulator):
         solids_parameters['pressure'] = pressure
 
         self.gas.setup(gas_parameters)
+        print "Gas setup complete"
+
         self.solids.setup(solids_parameters)
-                     
+        print "Solids setup complete"
         
         print "phaseDict set up ... setting inlet conditions"
         LSODASimulator.setInletConditions(self,[self.solids, self.gas])
-        
+        self.solids.temperatureIndex = 0
+        self.gas.temperatureIndex = 1
         
         #PICK OUT SOLID AND GAS INDICES SPECIFIC TO ACTUAL GIVEN SPECIES.  (CELL,HCE,ect....)
         #solidSpeciesIndices AND gasSpeciesIndices ARE DICTIONARIES WITH THE SPECIES NAME MAPPED TO THE 
@@ -657,7 +664,7 @@ class LSODASolidGas(LSODASimulator):
             
 if __name__ == '__main__':
     tube1 = Tube(diameter = 1.5/39.37, length = 24.0/39.37, emissivity = 0.9, temperature = 1723)
-    sim1 = LSODASolidGas(tube = tube1, gas_filename = "completeMechanism_gas.xml", solids_filename = "completeMechanism_solid.xml")
+    sim1 = LSODASolidGas(tube = tube1, gas_filename = "completeMechanism_gas.xml", solids_filename = "completeMechanism_solid.xml", energyBalance = "ConstantWallTemp")
     print "simulation created"
 
     TotalFlowRate = uv.UnitVal(2.0, 'lb/hr')
@@ -670,8 +677,8 @@ if __name__ == '__main__':
     m_solids['LIGC'] = TotalFlowRate * 0.3/3.0
 
     m_gas = {}
-    m_gas['H2O'] = 2.0 * 0.85
-    m_gas['CO2'] = 2.0 * 1.5
+    m_gas['H2O'] = TotalFlowRate * 0.85
+    m_gas['CO2'] = TotalFlowRate * 1.5
     
     
     sim1.setInletConditions(m_solids = m_solids, m_gas = m_gas, T_solids = uv.UnitVal(25, 'C'), T_gas = uv.UnitVal(300, 'C'), Tmix = uv.UnitVal(450.0,'K'), pressure = uv.UnitVal(50, 'psig'))

@@ -51,16 +51,16 @@ class UnitVal:
     def __div__(self, other):
         """Divides a unit value with another unit value or a scalar"""
 
-       if isinstance(other, UnitVal):
-           if other.value == 0:
-               raise ValueError, "Divide by zero"
-           else:
-               return UnitVal(self.value*other.get_value(self.units), self.units)
-       else:
-           if other.value == 0:
-               raise ValueError, "Divide by zero"
-           else:
-               return UnitVal(self.value*other, self.units)
+        if isinstance(other, UnitVal):
+            if other.value == 0:
+                raise ValueError, "Divide by zero"
+            else:
+                return UnitVal(self.value*other.get_value(self.units), self.units)
+        else:
+            if other == 0:
+                raise ValueError, "Divide by zero"
+            else:
+                return UnitVal(self.value*other, self.units)
 
     def __rdiv__(self, other):
         return self.__div__(self, other)
